@@ -79478,10 +79478,30 @@ export namespace Schemas {
       step_at_delegation?: string;
     }
 
+    /**
+     * * `8` - administrator
+     */
+    export type RoleOrganizationAccessLevelEnum = typeof RoleOrganizationAccessLevelEnum[keyof typeof RoleOrganizationAccessLevelEnum];
+
+
+    export const RoleOrganizationAccessLevelEnum = {
+      Number8: 8,
+    } as const;
+
+    export interface OrganizationRoleGrant {
+      readonly id: string;
+      readonly name: string;
+      readonly organization_access_level: RoleOrganizationAccessLevelEnum | null;
+    }
+
     export interface OrganizationMember {
       readonly id: string;
       readonly user: UserBasic;
       level?: OrganizationMembershipLevelEnum;
+      /** Highest organization access from the individual assignment and applicable roles. */
+      readonly effective_level: number;
+      /** Roles granting additional organization access. */
+      readonly role_grants: readonly OrganizationRoleGrant[];
       readonly joined_at: string;
       readonly updated_at: string;
       readonly is_2fa_enabled: boolean;
@@ -83168,6 +83188,10 @@ export namespace Schemas {
       /** Members assigned to this role */
       readonly members: readonly RoleMembersItem[];
       readonly is_default: boolean;
+      /** Additional organization access granted to role members. Null grants no additional access.
+       *
+       * * `8` - administrator */
+      organization_access_level?: RoleOrganizationAccessLevelEnum | null;
     }
 
     export interface PaginatedRoleList {
@@ -95174,6 +95198,10 @@ export namespace Schemas {
       readonly id?: string;
       readonly user?: UserBasic;
       level?: OrganizationMembershipLevelEnum;
+      /** Highest organization access from the individual assignment and applicable roles. */
+      readonly effective_level?: number;
+      /** Roles granting additional organization access. */
+      readonly role_grants?: readonly OrganizationRoleGrant[];
       readonly joined_at?: string;
       readonly updated_at?: string;
       readonly is_2fa_enabled?: boolean;
@@ -97385,6 +97413,10 @@ export namespace Schemas {
       /** Members assigned to this role */
       readonly members?: readonly PatchedRoleMembersItem[];
       readonly is_default?: boolean;
+      /** Additional organization access granted to role members. Null grants no additional access.
+       *
+       * * `8` - administrator */
+      organization_access_level?: RoleOrganizationAccessLevelEnum | null;
     }
 
     /**
