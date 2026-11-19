@@ -1,10 +1,12 @@
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
 from typing import IO, Any, Final
 
+from django.core.cache import cache
 from django.utils.timezone import now
 
 from posthog.schema import HogQLPropertyFilter
@@ -15,6 +17,8 @@ from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.engineering_analytics.backend.facade import api as engineering_analytics_api
 from products.engineering_analytics.backend.facade.contracts import BranchPRMatch, GitHubSourceNotConnectedError
@@ -61,6 +65,7 @@ from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
 from ..logic.message_normalizer.errors import RecipeCompileError as RecipeCompileError
 from ..logic.message_normalizer.normalizer import RecipeNormalizer, check_stored_recipe_source, compile_candidate_recipe
+from ..logic.traces import trace_metrics_queries
 from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
 from ..logic.traces.clusters import ClusterMemberships, TraceCluster
 from ..logic.traces.dataset_item import StepDatasetItem
@@ -106,6 +111,22 @@ from ..logic.traces.trace_export import (
     TraceExportRequest,
     TraceExportState,
     TraceExportWriter,
+)
+from ..logic.traces.trace_metrics import (
+    NO_TRACES,
+    BucketSize,
+    MetricKey,
+    PeriodTotals,
+    bucket_floor,
+    bucket_size_for,
+    bucket_starts,
+    metric_value,
+    tiles_of,
+)
+from ..logic.traces.trace_metrics_queries import (
+    TraceMetricsRows,
+    TraceMetricsTooHeavyError as TraceMetricsTooHeavyError,
+    previous_window,
 )
 from ..logic.traces.trace_queries import (
     PageTraceRows,
@@ -220,6 +241,97 @@ def load_trace_list(
         items=_list_items(team, user, selection.window, page.positions, loaded),
         counts=_to_list_counts(page.counts) if cursor is None else None,
         next_cursor=encode_cursor(page.positions[-1]) if page.has_more else None,
+    )
+
+
+TRACE_METRICS_CACHE_SECONDS = 300
+
+
+def _metrics_cache_key(team: Team, user: User, selection: TraceSelection, size: BucketSize) -> str:
+    # The window is floored in the project's zone because that is where buckets start, so two windows share a key only
+    # when they need the same bucket list.
+    window = selection.window
+    restrictions = restriction_fingerprint(
+        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    )
+    return (
+        f"ai_observability_trace_metrics_v1:{team.pk}:{bucket_floor(window.start, size).isoformat()}:"
+        f"{bucket_floor(window.end, size).isoformat()}:{selection.filter_test_accounts}:"
+        f"{selection.include_support_traces}:{restrictions}"
+    )
+
+
+def load_trace_metrics(team: Team, user: User, selection: TraceSelection) -> Callable[[], contracts.TraceMetrics]:
+    """Reads the totals of the selected window and of the period of the same length before it, and returns the step
+    that builds them into tiles and buckets. Raises `TraceMetricsTooHeavyError` when the range is too long to compute.
+
+    The read is cached for a few minutes, keyed by the window floored to its bucket size, so a dashboard that
+    refreshes does not query ClickHouse again. A range too long to compute is cached the same way, so a repeat visit
+    gets the refusal without running the read again. The step runs no query.
+    """
+    zone = team.timezone_info
+    window = TraceWindow(start=selection.window.start.astimezone(zone), end=selection.window.end.astimezone(zone))
+    selection = replace(selection, window=window)
+    size = bucket_size_for(window)
+    rows = _cached_metrics_rows(team, user, selection, size)
+    previous = previous_window(window)
+    return lambda: _to_trace_metrics(window, previous, size, rows)
+
+
+_TOO_HEAVY_MARKER = "too_heavy"
+
+
+def _cached_metrics_rows(team: Team, user: User, selection: TraceSelection, size: BucketSize) -> TraceMetricsRows:
+    key = _metrics_cache_key(team, user, selection, size)
+    cached = cache.get(key)
+    if cached == _TOO_HEAVY_MARKER:
+        raise TraceMetricsTooHeavyError()
+    if isinstance(cached, TraceMetricsRows):
+        return cached
+    try:
+        rows = trace_metrics_queries.load_trace_metrics(team, user, selection, size)
+    except TraceMetricsTooHeavyError:
+        cache.set(key, _TOO_HEAVY_MARKER, TRACE_METRICS_CACHE_SECONDS)
+        raise
+    cache.set(key, rows, TRACE_METRICS_CACHE_SECONDS)
+    return rows
+
+
+def _to_metric_values(totals: PeriodTotals) -> contracts.TraceMetricValues:
+    return contracts.TraceMetricValues(
+        cost=metric_value(totals, MetricKey.COST),
+        users=metric_value(totals, MetricKey.USERS),
+        sessions=metric_value(totals, MetricKey.SESSIONS),
+        traces=metric_value(totals, MetricKey.TRACES),
+        error_rate=metric_value(totals, MetricKey.ERROR_RATE),
+        p95_latency=metric_value(totals, MetricKey.P95_LATENCY),
+    )
+
+
+def _to_trace_metrics(
+    window: TraceWindow, previous: TraceWindow, size: BucketSize, rows: TraceMetricsRows
+) -> contracts.TraceMetrics:
+    return contracts.TraceMetrics(
+        date_from=window.start,
+        date_to=window.end,
+        previous_date_from=previous.start,
+        previous_date_to=previous.end,
+        bucket_size=contracts.TraceMetricBucketSize(size.value),
+        tiles=[
+            contracts.TraceMetricTile(
+                key=contracts.TraceMetricKey(tile.key.value),
+                value=tile.value,
+                previous=tile.previous,
+                change=tile.change,
+                change_unit=contracts.TraceMetricChangeUnit(tile.change_unit.value),
+                status=contracts.TraceMetricStatus(tile.status.value),
+            )
+            for tile in tiles_of(rows.current, rows.previous)
+        ],
+        buckets=[
+            contracts.TraceMetricBucket(start=start, values=_to_metric_values(rows.buckets.get(start, NO_TRACES)))
+            for start in bucket_starts(window, size)
+        ],
     )
 
 

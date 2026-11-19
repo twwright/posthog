@@ -1,4 +1,6 @@
+import json
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from parameterized import parameterized
@@ -7,6 +9,11 @@ from products.ai_observability.backend.logic.traces.person import person_label, 
 from products.ai_observability.backend.logic.traces.trace_queries import PersonRow
 
 from .rows import T0, make_row
+
+# The case file names each person by the distinct id of the events that carry it, which is what this rule returns.
+CASES: list[dict[str, Any]] = json.loads(
+    (Path(__file__).parents[4] / "shared" / "trace_expression_cases.json").read_text()
+)
 
 
 @parameterized.expand(
@@ -37,6 +44,20 @@ from .rows import T0, make_row
 )
 def test_trace_distinct_id(_name: str, rows: list[dict[str, Any]], expected: str | None) -> None:
     assert trace_distinct_id([make_row(**row) for row in rows]) == expected
+
+
+@parameterized.expand([(case["name"], case) for case in CASES])
+def test_trace_distinct_id_matches_the_shared_cases(_name: str, case: dict[str, Any]) -> None:
+    rows = [
+        make_row(
+            event=event["event"],
+            timestamp=T0 + timedelta(seconds=event.get("second", index)),
+            distinct_id=event.get("distinct_id", "user-1"),
+        )
+        for index, event in enumerate(case["events"])
+    ]
+
+    assert trace_distinct_id(rows) == case["person"]
 
 
 @parameterized.expand(
