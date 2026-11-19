@@ -80,7 +80,7 @@ describe('KpiTile', () => {
                 changeUnit: TraceMetricChangeUnitApi.Seconds,
             },
             '4.2s',
-            '−0.3 s',
+            '−0.3s',
         ],
         ['count', { key: TraceMetricKeyApi.Traces, value: 52118, change: 9 }, '52,118', '+9%'],
         ['no change', { change: null }, '$1,204.00', '-'],

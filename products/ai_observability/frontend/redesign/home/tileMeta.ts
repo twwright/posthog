@@ -36,5 +36,5 @@ export function tileSlug(key: TraceMetricKeyApi): string {
 export const CHANGE_UNIT_SUFFIX: Record<TraceMetricChangeUnitApi, string> = {
     [TraceMetricChangeUnitApi.Percent]: '%',
     [TraceMetricChangeUnitApi.Points]: ' pt',
-    [TraceMetricChangeUnitApi.Seconds]: ' s',
+    [TraceMetricChangeUnitApi.Seconds]: 's',
 }
