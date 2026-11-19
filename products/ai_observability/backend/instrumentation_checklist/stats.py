@@ -9,6 +9,12 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.utils import generate_cache_key, get_safe_cache, safe_cache_set
 
+from products.ai_observability.backend.logic.traces.trace_expressions import (
+    AI_EVENTS_COLUMNS,
+    event_identified,
+    event_is_otel,
+)
+
 from .grading import VOLUME_FLOOR, ChecklistStats
 
 # Matches ai_events' `retention_days Int16 DEFAULT 30`, so the window never asks for rows the
@@ -28,6 +34,7 @@ CACHE_VERSION = "v1"
 CHECKLIST_EVENTS = ("$ai_generation", "$ai_span", "$ai_trace", "$ai_embedding")
 
 # The identity counts exclude OTel-ingested generations because `is_identified` cannot read them.
+# `is_identified` and `is_otel` are the `event_identified` and `event_is_otel` expressions the trace metrics share.
 # An unidentified OTel span falls back to one random UUID per OTLP request
 # (rust/capture/src/otel/identity.rs), not to the trace id the server SDKs reuse, so a hex trace id
 # never equals it and every such generation would look identified. Counting them would tell an
@@ -61,8 +68,8 @@ FROM (
         JSONHas(properties, '$ai_session_id')
             AND JSONType(properties, '$ai_session_id') = 'Null' AS declines_session,
         coalesce(properties.$ai_tools_called, '') != ''         AS has_tool_calls,
-        coalesce(properties.$ai_ingestion_source, '') = 'otel'  AS is_otel,
-        distinct_id != coalesce(trace_id, '')                   AS is_identified,
+        {otel}                                                  AS is_otel,
+        {identified}                                            AS is_identified,
         coalesce(parent_id, '') != ''                           AS has_parent
     FROM posthog.ai_events AS ai_events
     WHERE event IN {checklist_events}
@@ -103,6 +110,14 @@ def _window_placeholders() -> dict[str, ast.Expr]:
     }
 
 
+def _counts_placeholders() -> dict[str, ast.Expr]:
+    return {
+        **_window_placeholders(),
+        "identified": event_identified(AI_EVENTS_COLUMNS),
+        "otel": event_is_otel(AI_EVENTS_COLUMNS),
+    }
+
+
 def _row_to_counts(columns: Sequence[str], row: Sequence[int]) -> dict[str, int]:
     return dict(zip(columns, row))
 
@@ -114,7 +129,7 @@ def _query_counts(team: Team) -> dict[str, int]:
     # raises.
     result = query_ai_events(
         query=parse_select(_COUNTS_SQL),
-        placeholders=_window_placeholders(),
+        placeholders=_counts_placeholders(),
         team=team,
         query_type="AIObservabilityInstrumentationChecklist",
         fall_back_to_events=False,
@@ -171,9 +186,9 @@ def fetch_checklist_stats(team: Team, *, force_refresh: bool = False) -> Checkli
             return cached
 
     stats = _compute_checklist_stats(team)
-    # Below the floor every check grades pending, which is the card someone watches while their first
-    # events land. Holding that verdict for the whole TTL is the wrong answer to look at, and a
-    # project with that few events is cheap to count again.
+    # Below the tool calls floor that check still grades pending, and a project this small is the one
+    # watching its first events land. Holding a verdict for the whole TTL is the wrong answer to look
+    # at, and a project with that few events is cheap to count again.
     if stats.total_events >= VOLUME_FLOOR:
         safe_cache_set(cache_key, asdict(stats), timeout=CACHE_TTL_SECONDS)
     return stats

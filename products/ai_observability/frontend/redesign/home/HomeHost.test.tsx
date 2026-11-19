@@ -7,7 +7,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { METRICS } from './homeFixtures'
+import { CHECKLIST_WARNING, METRICS } from './homeFixtures'
 import { HomeHost } from './HomeHost'
 
 type Answer = [number, unknown]
@@ -20,6 +20,7 @@ describe('HomeHost', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/ai_observability/traces/metrics/': () => metricsAnswer,
+                '/api/projects/:team_id/ai_observability/instrumentation_checklist/': () => [200, CHECKLIST_WARNING],
                 '/api/projects/:team_id/dashboards/': () => [200, { count: 1, results: [{ id: 42 }] }],
             },
         })
@@ -39,6 +40,7 @@ describe('HomeHost', () => {
         await waitFor(() => expect(container.querySelector('[data-attr="home-open-dashboard"]')).not.toBeNull())
         expect(container.querySelectorAll('[data-attr^="home-tile-"]')).toHaveLength(6)
         expect(container.querySelectorAll('[data-attr^="home-section-"]')).toHaveLength(4)
+        await waitFor(() => expect(container.querySelector('[data-attr="home-instrumentation"]')).not.toBeNull())
     })
 
     it('shows the range banner for a range that is too long', async () => {

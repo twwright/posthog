@@ -1,8 +1,12 @@
 import {
+    AIObservabilityInstrumentationCheckEnumApi,
+    InstrumentationCheckStatusEnumApi,
     TraceMetricBucketSizeApi,
     TraceMetricChangeUnitApi,
     TraceMetricKeyApi,
     TraceMetricStatusApi,
+    type InstrumentationCheckApi,
+    type InstrumentationChecklistApi,
     type TraceMetricsApi,
     type TraceMetricTileApi,
 } from '../../generated/api.schemas'
@@ -121,4 +125,57 @@ export const METRICS_NOT_SET_UP: TraceMetricsApi = metricsOf(
 export const TILE_LINKS: Partial<Record<TraceMetricKeyApi, string>> = {
     [TraceMetricKeyApi.Traces]: '/ai-observability/traces',
     [TraceMetricKeyApi.ErrorRate]: '/ai-observability/errors',
+}
+
+const CHECKLIST_DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
+
+function check(
+    key: AIObservabilityInstrumentationCheckEnumApi,
+    title: string,
+    status: InstrumentationCheckStatusEnumApi,
+    detail: string
+): InstrumentationCheckApi {
+    return { key, status, title, detail, docs_url: CHECKLIST_DOCS_URL, stats: {} }
+}
+
+const { Sessions, ToolCalls, UserIdentity, TraceStructure } = AIObservabilityInstrumentationCheckEnumApi
+const { Ok, Warning, Dismissed } = InstrumentationCheckStatusEnumApi
+
+export const CHECKLIST_ALL_OK: InstrumentationChecklistApi = {
+    window_days: 30,
+    agent_prompt: null,
+    passing: 4,
+    total: 4,
+    checks: [
+        check(Sessions, 'Sessions', Ok, 'Generations carry a session id.'),
+        check(ToolCalls, 'Tool calls', Ok, 'Tool calls appear in traces.'),
+        check(UserIdentity, 'User identity', Ok, 'Generations carry a distinct id.'),
+        check(TraceStructure, 'Trace structure', Ok, 'Spans nest under their traces.'),
+    ],
+}
+
+export const CHECKLIST_WARNING: InstrumentationChecklistApi = {
+    window_days: 30,
+    agent_prompt: 'Add a session id to every generation. Docs: https://posthog.com/docs/ai-observability/installation',
+    passing: 3,
+    total: 4,
+    checks: [
+        check(Sessions, 'Sessions', Warning, 'No generations carry a session id. Send $ai_session_id.'),
+        check(ToolCalls, 'Tool calls', Ok, 'Tool calls appear in traces.'),
+        check(UserIdentity, 'User identity', Dismissed, 'Marked as not applicable.'),
+        check(TraceStructure, 'Trace structure', Ok, 'Spans nest under their traces.'),
+    ],
+}
+
+export const CHECKLIST_DISMISSED: InstrumentationChecklistApi = {
+    window_days: 30,
+    agent_prompt: null,
+    passing: 4,
+    total: 4,
+    checks: [
+        check(Sessions, 'Sessions', Dismissed, 'Marked as not applicable.'),
+        check(ToolCalls, 'Tool calls', Ok, 'Tool calls appear in traces.'),
+        check(UserIdentity, 'User identity', Ok, 'Generations carry a distinct id.'),
+        check(TraceStructure, 'Trace structure', Ok, 'Spans nest under their traces.'),
+    ],
 }

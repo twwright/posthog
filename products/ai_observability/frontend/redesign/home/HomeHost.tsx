@@ -7,13 +7,17 @@ import { ListErrorState } from '../lists/components/ListErrorState'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { HomeLayout } from './components/HomeLayout'
 import { HomeRangeTooLong } from './components/HomeRangeTooLong'
+import { InstrumentationRow } from './components/InstrumentationRow'
 import { KpiTileRow } from './components/KpiTileRow'
 import { OpenDashboardLink } from './components/OpenDashboardLink'
 import { homeLogic } from './homeLogic'
+import { instrumentationLogic } from './instrumentationLogic'
 
 export function HomeHost(): JSX.Element {
     const { metrics, metricsLoading, metricsFailure, dashboardId, tileLinks } = useValues(homeLogic)
     const { loadMetrics } = useActions(homeLogic)
+    const { checklist, checklistLoading } = useValues(instrumentationLogic)
+    const { dismiss, restore } = useActions(instrumentationLogic)
     const { dateFrom, dateTo, filterTestAccounts } = useValues(shellScopeLogic)
     const { setDateRange, setFilterTestAccounts } = useActions(shellScopeLogic)
 
@@ -46,7 +50,14 @@ export function HomeHost(): JSX.Element {
                 </>
             }
             tiles={tiles}
-            instrumentation={null}
+            instrumentation={
+                <InstrumentationRow
+                    checklist={checklist}
+                    loading={checklistLoading}
+                    onDismiss={dismiss}
+                    onRestore={restore}
+                />
+            }
         />
     )
 }
