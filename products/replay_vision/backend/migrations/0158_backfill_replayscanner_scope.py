@@ -1,5 +1,4 @@
 from django.db import migrations, transaction
-from django.utils import timezone
 
 _BATCH_SIZE = 500
 
@@ -59,7 +58,6 @@ def backfill_replayscanner_scope(apps, schema_editor):
     # The migration connection carries the lock_timeout that makes a contended row fail fast so the
     # runner retries; the default connection has no such bound and would block the deploy instead.
     alias = schema_editor.connection.alias
-    now = timezone.now()
     last_pk = None
     while True:
         # Read and write in one transaction with the batch locked, so a scanner saved between the
@@ -94,37 +92,24 @@ def backfill_replayscanner_scope(apps, schema_editor):
                     # Nothing names an experiment, so there is no scope to derive. An experiment-type
                     # row in this state cannot build a scanner either; left alone for a person.
                     continue
-                scanner.scope = {**scope, "backfilled_at": now.isoformat()}
+                scanner.scope = scope
                 changed.append(scanner)
             ReplayScanner.objects.using(alias).bulk_update(changed, ["scope"])
 
 
-def clear_backfilled_scope(apps, schema_editor):
-    """Clear the scopes this migration wrote, keyed on its own stamp.
+def noop_reverse(apps, schema_editor):
+    """Nothing to undo: every scope this wrote is the one `ReplayScanner.save()` derives anyway.
 
-    Nothing else moved, so there is nothing else to rebuild. A scope the mirror derived or a person
-    set carries no stamp and is left exactly as it is.
+    The backfill carries no stamp of its own, because the mirror decides whether it owns a row's
+    scope by comparing the stored blob against a fresh derivation. A provenance key would fail that
+    comparison, and the one save that clears a row's `experiment_targeting` would then leave the
+    scope naming the removed experiment in place, so the scanner would keep sweeping it.
+
+    Without a stamp there is nothing to tell a backfilled scope from a mirrored one, and clearing
+    both would throw away values the mirror wrote. Reversing the migration therefore leaves the
+    column as it is: the rows hold what a save would write, and `scope_for` still falls back to the
+    older stores, which this never touched.
     """
-    ReplayScanner = apps.get_model("replay_vision", "ReplayScanner")
-    alias = schema_editor.connection.alias
-    last_pk = None
-    while True:
-        # Locked and written in one transaction, for the same reason as the forward step.
-        with transaction.atomic(using=alias):
-            rows = ReplayScanner.objects.using(alias).order_by("pk").select_for_update(of=("self",))
-            if last_pk is not None:
-                rows = rows.filter(pk__gt=last_pk)
-            batch = list(rows.only("id", "scope")[:_BATCH_SIZE])
-            if not batch:
-                return
-            last_pk = batch[-1].pk
-            changed = []
-            for scanner in batch:
-                if not isinstance(scanner.scope, dict) or not scanner.scope.get("backfilled_at"):
-                    continue
-                scanner.scope = None
-                changed.append(scanner)
-            ReplayScanner.objects.using(alias).bulk_update(changed, ["scope"])
 
 
 class Migration(migrations.Migration):
@@ -132,4 +117,4 @@ class Migration(migrations.Migration):
 
     dependencies = [("replay_vision", "0157_drop_replayscanner_sampling_mode_column")]
 
-    operations = [migrations.RunPython(backfill_replayscanner_scope, clear_backfilled_scope)]
+    operations = [migrations.RunPython(backfill_replayscanner_scope, noop_reverse)]

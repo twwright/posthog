@@ -156,7 +156,10 @@ class TestBackfillReplayScannerScope(TestMigrations):
         assert row.scope == {"kind": "experiment", "experiment_id": 31, "variants": ["control"]}
         assert "backfilled_at" not in row.scope
 
-    def test_every_backfilled_row_is_stamped(self) -> None:
+    def test_a_backfilled_scope_carries_no_provenance_key(self) -> None:
+        # The mirror decides whether it owns a row's scope by comparing the stored blob against a
+        # fresh derivation. A provenance key fails that comparison, and the save that clears a row's
+        # `experiment_targeting` would then leave the scope naming the removed experiment in place.
         ReplayScanner = self.apps.get_model("replay_vision", "ReplayScanner")  # type: ignore[union-attr]
         backfilled = [
             self.native,
@@ -168,7 +171,8 @@ class TestBackfillReplayScannerScope(TestMigrations):
         ]
 
         for scanner_id in backfilled:
-            assert ReplayScanner.objects.get(id=scanner_id).scope["backfilled_at"]
+            scope = ReplayScanner.objects.get(id=scanner_id).scope
+            assert set(scope) <= {"kind", "experiment_id", "variants", "balance", "start_on_launch"}, scope
 
 
 class TestBackfillAgreesWithTheMirror(BaseTest):
@@ -197,44 +201,25 @@ class TestBackfillAgreesWithTheMirror(BaseTest):
 
         assert _migration()._scope_from_native_config(config) == derive_scope(scanner)
 
-
-class TestClearBackfilledScope(TestMigrations):
-    app = "replay_vision"
-    migrate_from = "0158_backfill_replayscanner_scope"
-    migrate_to = "0157_drop_replayscanner_sampling_mode_column"
-
-    def setUpBeforeMigration(self, apps: Any) -> None:
-        ReplayScanner = apps.get_model("replay_vision", "ReplayScanner")
-        stamp = "2026-11-19T00:00:00+00:00"
-
-        def scanner(**fields):
-            defaults = {"team_id": self.team.id, "model": _MODEL}
-            return ReplayScanner.objects.create(**{**defaults, **fields}).id
-
-        self.backfilled = scanner(
-            name="n1",
-            scanner_type="experiment",
-            scanner_config={"prompt": "p", "experiment_id": 11, "variants": ["control", "test"]},
-            scope={"kind": "experiment", "experiment_id": 11, "backfilled_at": stamp},
-        )
-        self.set_by_hand = scanner(
-            name="n2",
-            scanner_type="summarizer",
+    def test_a_backfilled_scope_still_follows_a_cleared_targeting(self) -> None:
+        # The mirror must keep reading a backfilled row as its own. If it does not, the one save
+        # that clears `experiment_targeting` leaves the scope naming the removed experiment, and
+        # the scanner keeps sweeping that experiment's sessions while every surface shows it
+        # untargeted.
+        scanner = ReplayScanner.objects.create(
+            team_id=self.team.id,
+            name="cleared",
+            scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            experiment_targeting={"experiment_id": 31},
-            scope={"kind": "experiment", "experiment_id": 31},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            experiment_targeting={"experiment_id": 43},
         )
+        backfilled = _migration()._scope_from_targeting({"experiment_id": 43})
+        ReplayScanner.objects.filter(pk=scanner.pk).update(scope=backfilled)
+        scanner.refresh_from_db()
 
-    def test_a_backfilled_scope_is_cleared_and_nothing_else_moves(self) -> None:
-        ReplayScanner = self.apps.get_model("replay_vision", "ReplayScanner")  # type: ignore[union-attr]
-        row = ReplayScanner.objects.get(id=self.backfilled)
+        scanner.experiment_targeting = None
+        scanner.save()
+        scanner.refresh_from_db()
 
-        assert row.scope is None
-        assert row.scanner_type == "experiment"
-        assert row.scanner_config["experiment_id"] == 11
-
-    def test_a_scope_this_migration_did_not_write_is_left_alone(self) -> None:
-        ReplayScanner = self.apps.get_model("replay_vision", "ReplayScanner")  # type: ignore[union-attr]
-        row = ReplayScanner.objects.get(id=self.set_by_hand)
-
-        assert row.scope == {"kind": "experiment", "experiment_id": 31}
+        assert scanner.scope is None
