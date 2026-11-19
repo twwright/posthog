@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from parameterized import parameterized
 
+from products.ai_observability.backend.docs_urls import COST_DOCS_URL, INSTALLATION_DOCS_URL, SESSIONS_DOCS_URL
 from products.ai_observability.backend.logic.traces.trace_metrics import (
     BucketSize,
     ChangeUnit,
@@ -86,14 +87,16 @@ def test_cost_not_set_up_when_no_trace_has_cost() -> None:
 
 @parameterized.expand(
     [
-        (MetricKey.COST, "traces_with_cost"),
-        (MetricKey.P95_LATENCY, "traces_with_latency"),
-        (MetricKey.SESSIONS, "traces_with_session"),
+        (MetricKey.COST, "traces_with_cost", COST_DOCS_URL),
+        (MetricKey.P95_LATENCY, "traces_with_latency", INSTALLATION_DOCS_URL),
+        (MetricKey.SESSIONS, "traces_with_session", SESSIONS_DOCS_URL),
     ]
 )
-def test_coverage_decides_not_set_up(key: MetricKey, field: str) -> None:
-    assert tile(tiles_of(replace(FULL, **{field: 0}), None), key).status == TileStatus.NOT_SET_UP
-    assert tile(tiles_of(replace(FULL, **{field: 1}), None), key).status == TileStatus.OK
+def test_coverage_decides_not_set_up_and_docs_link(key: MetricKey, field: str, docs_url: str) -> None:
+    missing = tile(tiles_of(replace(FULL, **{field: 0}), None), key)
+    covered = tile(tiles_of(replace(FULL, **{field: 1}), None), key)
+    assert (missing.status, missing.docs_url) == (TileStatus.NOT_SET_UP, docs_url)
+    assert (covered.status, covered.docs_url) == (TileStatus.OK, None)
 
 
 def test_tiles_ok_when_range_is_empty() -> None:
@@ -110,7 +113,8 @@ def test_users_status_ok_when_every_generation_is_otel() -> None:
 
 def test_users_not_set_up_when_no_event_is_identified() -> None:
     totals = replace(FULL, identified_events=0, non_otel_generations=3)
-    assert tile(tiles_of(totals, None), MetricKey.USERS).status == TileStatus.NOT_SET_UP
+    users = tile(tiles_of(totals, None), MetricKey.USERS)
+    assert (users.status, users.docs_url) == (TileStatus.NOT_SET_UP, INSTALLATION_DOCS_URL)
 
 
 @parameterized.expand(

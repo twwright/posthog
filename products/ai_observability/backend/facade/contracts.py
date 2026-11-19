@@ -1118,6 +1118,9 @@ class TraceMetricTile(Contract):
         description="`not_set_up` when the project has traces in the range but none carries the data this metric "
         "needs, such as no cost, no latency, no session or no identified user."
     )
+    docs_url: str | None = Field(
+        description="The docs page that explains how to capture this metric. Set only when `status` is `not_set_up`."
+    )
 
 
 class TraceMetricValues(Contract):

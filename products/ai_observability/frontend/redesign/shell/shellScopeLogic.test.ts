@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -10,6 +11,7 @@ import { shellScopeLogic } from './shellScopeLogic'
 
 const TRACES = urls.aiObservabilityTraces()
 const STORAGE_KEY = 'ai_observability.shell_date_range'
+const TEST_ACCOUNTS_STORAGE_KEY = 'ai_observability.shell_filter_test_accounts'
 
 describe('shellScopeLogic', () => {
     let logic: ReturnType<typeof shellScopeLogic.build>
@@ -103,4 +105,66 @@ describe('shellScopeLogic', () => {
             expect(router.values.lastMethod).toEqual('REPLACE')
         }
     )
+
+    describe('filterTestAccounts', () => {
+        it.each([true, false])('defaults filterTestAccounts to the project default %s', (projectDefault) => {
+            filterTestAccountsDefaultsLogic.mount()
+            filterTestAccountsDefaultsLogic.actions.setLocalDefault(projectDefault)
+
+            mountAt(TRACES)
+
+            expect(logic.values.filterTestAccounts).toBe(projectDefault)
+        })
+
+        it.each([
+            ['true', true],
+            ['false', false],
+        ])('reads filter_test_accounts=%s from the URL on a shell path', (raw, expected) => {
+            filterTestAccountsDefaultsLogic.mount()
+            filterTestAccountsDefaultsLogic.actions.setLocalDefault(!expected)
+
+            mountAt(`${urls.aiObservabilityErrors()}?filter_test_accounts=${raw}`)
+
+            expect(logic.values.filterTestAccounts).toBe(expected)
+        })
+
+        it('ignores filter_test_accounts on a non-shell path and leaves its url alone', () => {
+            mountAt(TRACES)
+            const outside = `${urls.webAnalytics()}?filter_test_accounts=true`
+            const before = logic.values.filterTestAccounts
+
+            router.actions.push(outside)
+
+            expect(logic.values.filterTestAccounts).toBe(before)
+            expect(JSON.parse(localStorage.getItem(TEST_ACCOUNTS_STORAGE_KEY) ?? 'null')).toBeNull()
+            expect(router.values.searchParams).toEqual({ filter_test_accounts: true })
+        })
+
+        it('remembers an explicit choice', () => {
+            filterTestAccountsDefaultsLogic.mount()
+            filterTestAccountsDefaultsLogic.actions.setLocalDefault(false)
+            mountAt(TRACES)
+            logic.actions.setFilterTestAccounts(true)
+            logic.unmount()
+
+            mountAt(urls.aiObservabilityErrors())
+
+            expect(logic.values.filterTestAccounts).toBe(true)
+        })
+
+        it('writes a toggle to the url in place and keeps the other params', () => {
+            mountAt(`${TRACES}?date_from=-24h`)
+
+            logic.actions.setFilterTestAccounts(true)
+
+            expect(router.values.searchParams).toEqual({ date_from: '-24h', filter_test_accounts: 'true' })
+            expect(router.values.lastMethod).toEqual('REPLACE')
+        })
+
+        it('does not write the project default to the url', () => {
+            mountAt(TRACES)
+
+            expect(router.values.searchParams).toEqual({})
+        })
+    })
 })

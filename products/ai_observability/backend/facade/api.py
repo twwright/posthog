@@ -325,6 +325,7 @@ def _to_trace_metrics(
                 change=tile.change,
                 change_unit=contracts.TraceMetricChangeUnit(tile.change_unit.value),
                 status=contracts.TraceMetricStatus(tile.status.value),
+                docs_url=tile.docs_url,
             )
             for tile in tiles_of(rows.current, rows.previous)
         ],

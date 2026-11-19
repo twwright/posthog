@@ -3,6 +3,7 @@ from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
+from products.ai_observability.backend.docs_urls import COST_DOCS_URL, INSTALLATION_DOCS_URL, SESSIONS_DOCS_URL
 from products.ai_observability.backend.logic.traces.trace_selection import TraceWindow
 
 HOURLY_BUCKET_MAX_SPAN = timedelta(days=2)
@@ -71,6 +72,7 @@ class Tile:
     change: float | None
     change_unit: ChangeUnit
     status: TileStatus
+    docs_url: str | None
 
 
 _CHANGE_UNITS = {
@@ -80,6 +82,14 @@ _CHANGE_UNITS = {
     MetricKey.TRACES: ChangeUnit.PERCENT,
     MetricKey.ERROR_RATE: ChangeUnit.POINTS,
     MetricKey.P95_LATENCY: ChangeUnit.SECONDS,
+}
+
+
+_NOT_SET_UP_DOCS_URLS = {
+    MetricKey.COST: COST_DOCS_URL,
+    MetricKey.USERS: INSTALLATION_DOCS_URL,
+    MetricKey.SESSIONS: SESSIONS_DOCS_URL,
+    MetricKey.P95_LATENCY: INSTALLATION_DOCS_URL,
 }
 
 
@@ -167,6 +177,7 @@ def tiles_of(current: PeriodTotals, previous: PeriodTotals | None) -> list[Tile]
     for key in MetricKey:
         value = metric_value(current, key)
         previous_value = metric_value(previous, key) if previous is not None else None
+        status = _status(current, key)
         tiles.append(
             Tile(
                 key=key,
@@ -174,7 +185,8 @@ def tiles_of(current: PeriodTotals, previous: PeriodTotals | None) -> list[Tile]
                 previous=previous_value,
                 change=_change(value, previous_value, _CHANGE_UNITS[key]),
                 change_unit=_CHANGE_UNITS[key],
-                status=_status(current, key),
+                status=status,
+                docs_url=_NOT_SET_UP_DOCS_URLS.get(key) if status == TileStatus.NOT_SET_UP else None,
             )
         )
     return tiles
