@@ -20,6 +20,7 @@ from products.workflows.backend.services.provider_contacts import (
     send_provider_contact_properties,
     stage_provider_contacts,
 )
+from products.workflows.backend.services.provider_cohorts import MAX_SOURCE_NAME_LENGTH, resend_segment_description
 
 __all__ = [
     "MAX_PEOPLE_IMPORT_ROW_BYTES",
@@ -27,6 +28,7 @@ __all__ = [
     "ContactChunkOutcome",
     "ContactsCaptureFailed",
     "ContactsCohortFilled",
+    "MAX_SOURCE_NAME_LENGTH",
     "PeopleImportInvalid",
     "ProviderContactsResult",
     "discard_staged_contacts",
@@ -35,5 +37,6 @@ __all__ = [
     "import_contact_chunk",
     "send_provider_contact_properties",
     "stage_provider_contacts",
+    "resend_segment_description",
     "start_people_import",
 ]
