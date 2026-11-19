@@ -1,16 +1,19 @@
+import { useValues } from 'kea'
+
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import { ScoutReportAction } from '../../../logics/scoutDetailLogic'
+import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalReport } from '../../../types'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
 } from '../../../utils/reportPresentation'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { scoutNameForSkill } from '../../../utils/scoutRunsWindow'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag } from '../../cards/ReportCard'
@@ -34,6 +37,7 @@ export function ScoutReportCard({
     /** Set on cross-fleet listings to show the touching scout's name (omitted on the per-scout page). */
     skillName?: string
 }): JSX.Element {
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const headline = deriveHeadline(report.summary)
@@ -61,7 +65,7 @@ export function ScoutReportCard({
                         {action === 'authored' ? 'Authored' : 'Edited'}
                     </LemonTag>
                     <SignalReportStatusBadge status={report.status} />
-                    {skillName && <span className="truncate">{prettifyScoutSkillName(skillName)}</span>}
+                    {skillName && <span className="truncate">{scoutNameForSkill(scoutNamesBySkill, skillName)}</span>}
                     <span className="flex-1" />
                     <TZLabel time={report.updated_at} />
                 </div>

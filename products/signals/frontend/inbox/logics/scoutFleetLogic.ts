@@ -75,6 +75,7 @@ import {
     isSettledRun,
     runResponseCoversFleet,
     scoutDisplayName,
+    scoutNamesBySkill,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
@@ -407,6 +408,7 @@ export interface scoutFleetLogicValues {
     scoutFleetSynced: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutNamesBySkill: Record<string, string>
     scoutOwnerOptions: ScoutOwnerOption[]
     scoutRosterSort: ScoutRosterSort
     scoutRuns: SignalScoutRunSummary[]
@@ -685,6 +687,7 @@ export interface scoutFleetLogicMeta {
             aiConsentDisabledReason: string | null,
             scoutChatRefusal: ScoutChatRefusal | null
         ) => string | null
+        scoutNamesBySkill: (scoutConfigs: SignalScoutConfigApi[] | null) => Record<string, string>
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         scoutRunsCoverFleet: (scoutConfigs: SignalScoutConfigApi[] | null) => boolean
         isStaff: (user: null | import('~/types').UserType) => boolean
@@ -1269,6 +1272,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (s) => [s.aiConsentDisabledReason, s.scoutChatRefusal],
             (aiConsentDisabledReason: string | null, scoutChatRefusal: ScoutChatRefusal | null): string | null =>
                 aiConsentDisabledReason ?? scoutChatRefusal?.reason ?? null,
+        ],
+        // For surfaces that hold only a skill name, such as a report's scout or a signal's source.
+        scoutNamesBySkill: [
+            (s) => [s.scoutConfigs],
+            (scoutConfigs: SignalScoutConfig[] | null): Record<string, string> => scoutNamesBySkill(scoutConfigs),
         ],
         rollups: [
             (s) => [s.scoutRuns],

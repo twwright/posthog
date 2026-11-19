@@ -746,7 +746,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
          * not read as the whole save failing. */
         const reconcileDelivery = async (
             config: Pick<SignalScoutConfigApi, 'id' | 'skill_name' | 'output_destinations'>,
-            form: Pick<ScannerScoutForm, 'webhookUrl' | 'outputDestinations'>
+            form: Pick<ScannerScoutForm, 'name' | 'webhookUrl' | 'outputDestinations'>
         ): Promise<boolean> => {
             const projectId = teamLogic.values.currentProjectId
             const teamId = teamLogic.values.currentTeamId
@@ -754,7 +754,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 return false
             }
             const skillName = config.skill_name
-            const label = prettifyScoutSkillName(skillName)
+            const label = form.name.trim() || prettifyScoutSkillName(skillName)
             const url = form.webhookUrl.trim()
             try {
                 const existing = await findScoutDelivery(
