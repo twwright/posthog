@@ -4811,6 +4811,13 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
+            // The open email editor hands over its last edit first, so the unsaved-changes check below sees it.
+            actions.setDraftActionPending('publish')
+            const emailEditSaved = await latestEmailEditSaved()
+            actions.setDraftActionPending(null)
+            if (!emailEditSaved) {
+                return
+            }
             // The "Draft saved" toast offers Publish too, while auto-save may still hold edits. The step
             // check below reads the form, so it describes the staged draft only once the form is saved.
             if (values.publishDisabledReason) {
@@ -4826,10 +4833,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
             actions.setDraftActionPending('publish')
-            if (!(await latestEmailEditSaved())) {
-                actions.setDraftActionPending(null)
-                return
-            }
             let preview
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token
