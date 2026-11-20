@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { AnomalySearchResponseApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { ANOMALIES_PAGE_SIZE, anomaliesTabLogic } from './anomaliesTabLogic'
+import { ANOMALIES_PAGE_SIZE, ANOMALY_RATE_FILTER_OFF, anomaliesTabLogic } from './anomaliesTabLogic'
 
 const SEARCH_URL = '/api/projects/:team_id/signals/anomalies/search/'
 const TOTAL_ROWS = ANOMALIES_PAGE_SIZE + 5
@@ -49,6 +49,8 @@ function searchPage(offset: number, limit: number): AnomalySearchResponseApi {
         date_to: '2026-11-17T00:00:00+00:00',
         group_by: 'series',
         order: 'recent',
+        max_anomaly_rate: 0.1,
+        hidden_series: 0,
         series: rows.slice(offset, offset + limit),
         insights: [],
         has_more: offset + limit < TOTAL_ROWS,
@@ -60,9 +62,11 @@ function searchPage(offset: number, limit: number): AnomalySearchResponseApi {
 describe('anomaliesTabLogic', () => {
     let logic: ReturnType<typeof anomaliesTabLogic.build>
     let status: number
+    let requestedRates: (string | null)[]
 
     beforeEach(() => {
         status = 200
+        requestedRates = []
         useMocks({
             get: {
                 [SEARCH_URL]: ({ request }) => {
@@ -70,6 +74,7 @@ describe('anomaliesTabLogic', () => {
                         return [status, { detail: 'Not found.' }]
                     }
                     const params = new URL(request.url).searchParams
+                    requestedRates.push(params.get('max_anomaly_rate'))
                     return [200, searchPage(Number(params.get('offset')), Number(params.get('limit')))]
                 },
             },
@@ -116,6 +121,24 @@ describe('anomaliesTabLogic', () => {
         logic.actions.setFilters({ dateFrom: '-30d' })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.expandedInsightIds).toEqual({})
+    })
+
+    it('sends the noise filter limit on every page and reloads when it changes', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        logic = anomaliesTabLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setMaxAnomalyRate(ANOMALY_RATE_FILTER_OFF)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadMoreAnomalies()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedRates).toEqual(['0.1', '1', '1'])
+        expect(capture).toHaveBeenCalledWith(
+            'anomalies tab filter changed',
+            expect.objectContaining({ changed: ['max_anomaly_rate'], max_anomaly_rate: ANOMALY_RATE_FILTER_OFF })
+        )
     })
 
     it('captures a rating once per change and keeps it for the flagged bucket it judged', async () => {

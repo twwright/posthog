@@ -62,6 +62,8 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
         date_to: dayIso(14),
         group_by: 'series',
         order: 'recent',
+        max_anomaly_rate: 0.1,
+        hidden_series: 0,
         series: [],
         insights: [],
         has_more: false,
@@ -125,7 +127,11 @@ export const FlaggedSeries: Story = {
             waitForSelector: '[data-attr="anomalies-tab-row-chart"]',
         },
     },
-    decorators: [mswDecorator({ get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES, has_more: true }) } })],
+    decorators: [
+        mswDecorator({
+            get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES, has_more: true, hidden_series: 3 }) },
+        }),
+    ],
 }
 
 export const NothingFlagged: Story = {
